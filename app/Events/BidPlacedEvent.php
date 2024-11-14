@@ -6,16 +6,17 @@ use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PresenceChannel;
 use Illuminate\Broadcasting\PrivateChannel;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcast; // (Lazy) Must run queue:work
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow; // (immediately)
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class BidPlacedEvent implements ShouldBroadcast
+class BidPlacedEvent implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
-    private $name;
-    private $price;
+    public $name;
+    public $price;
 
     /**
      * Create a new event instance.
