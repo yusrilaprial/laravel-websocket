@@ -1,13 +1,16 @@
 <?php
 
 use App\Events\BidPlacedEvent;
-use App\Events\Testing;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
+use Symfony\Component\HttpFoundation\StreamedResponse; 
+use Hhxsv5\SSE\SSE;
+use Hhxsv5\SSE\Event;
+use Hhxsv5\SSE\StopSSEException;
 
-// WS Reverb
+// WS Reverb - Laravel Broadcast
 Route::get('/', function () {
     return view('welcome');
 });
@@ -16,20 +19,19 @@ Route::post('/bid', function (Request $request) {
     BidPlacedEvent::dispatch($request->name, $request->price);
 })->withoutMiddleware(VerifyCsrfToken::class);
 
-// SSE
+// SSE - Server Sent Event
 Route::get('/sse', function () {
     Cache::put('has_new_bid', true);
     return view('welcome-sse');
 });
 
 Route::post('/sse/bid', function (Request $request) {
-    // Validasi request untuk bid
     $request->validate([
         'name' => 'required|string',
         'price' => 'required|numeric',
     ]);
 
-    // Simpan bid dalam cache (atau gunakan mekanisme penyimpanan lain seperti DB)
+    // Save bids on cache
     $bids = Cache::get('bids', []);
     $newBid = [
         'name' => $request->input('name'),
@@ -38,39 +40,36 @@ Route::post('/sse/bid', function (Request $request) {
     $bids[] = $newBid;
     Cache::put('bids', $bids);
 
-    Cache::put('has_new_bid', true); // Tandai bahwa ada event baru
+    Cache::put('has_new_bid', true); // new event
 
-    // Trigger broadcast via SSE (akan dijelaskan di step streaming)
+    // Trigger broadcast via SSE
     return response()->json(['status' => 'Bid submitted']);
-});
+})->withoutMiddleware(VerifyCsrfToken::class);
 
 Route::get('/sse/stream', function (Request $request) {
-    return response()->stream(function () {
-        $lastEventId = Cache::get('last_event_id', 0);
-
-        while (true) {
-            if (Cache::get('has_new_bid', false)) {
-                // Ambil bid terbaru dari cache
-                $bids = Cache::get('bids', []);
-                
-                // Kirim semua bid dalam stream
-                echo "id: " . ($lastEventId + 1) . "\n";
-                echo "data: " . json_encode($bids) . "\n\n";
-                ob_flush(); // Kirim data segera ke client
-                flush();
-
-                // Update ID event terakhir yang dikirim
-                Cache::put('last_event_id', $lastEventId + 1);
-                Cache::put('has_new_bid', false); // Reset event baru
+    $response = new StreamedResponse();
+    $response->headers->set('Content-Type', 'text/event-stream');
+    $response->headers->set('Cache-Control', 'no-cache');
+    $response->headers->set('Connection', 'keep-alive');
+    $response->headers->set('X-Accel-Buffering', 'no'); // Nginx: unbuffered responses suitable for Comet and HTTP streaming applications
+    $response->setCallback(function () {
+        $callback = function () {            
+            if (!Cache::get('has_new_bid', false)) {
+                return false; // Return false if no new messages
             }
 
-            // Beri jeda 2 detik sebelum stream ulang (agar tidak terlalu intensif)
-            sleep(2);
-        }
-    }, 200, [
-        'Content-Type' => 'text/event-stream',
-        'Cache-Control' => 'no-cache',
-        'Connection' => 'keep-alive',
-        'X-Accel-Buffering' => 'no', // Jika menggunakan Nginx
-    ]);
+            // $shouldStop = false; // Stop if something happens or to clear connection, browser will retry
+            // if ($shouldStop) {
+            //     throw new StopSSEException();
+            // }
+
+            $bids = Cache::get('bids', []);
+            Cache::put('has_new_bid', false); // Reset new event
+
+            return json_encode($bids);
+        };
+        (new SSE(new Event($callback)))->start();
+    });
+
+    return $response;
 });
