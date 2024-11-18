@@ -68,6 +68,8 @@ The Laravel framework is open-sourced software licensed under the [MIT license](
 ## Run Dev
 ```bash
 php artisan serve
+
+# Run Laravel Broadcast
 php artisan reverb:start
 
 # If ShouldBroadcast (Lazy)
